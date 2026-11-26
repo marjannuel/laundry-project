@@ -29,6 +29,7 @@ const getServiceDisplay = (serviceType: string) => {
 export default function OrderCard({ order, onAdvanceStatus, onRevertStatus, onMarkPaid, onDeleteOrder }: OrderCardProps) {
   const serviceInfo = getServiceDisplay(order.service_type);
   const isUnpaid = order.payment_method === 'unpaid';
+  const isGcash = order.payment_method === 'gcash';
   const action = NEXT_STATUS_MAP[order.status];
 
   const handleCyclePayment = () => {
@@ -52,13 +53,28 @@ export default function OrderCard({ order, onAdvanceStatus, onRevertStatus, onMa
     }
   };
 
+  // Distinct border and solid pastel background tint by payment method
+  const cardTheme = isUnpaid
+    ? 'border-red-500 bg-red-50'
+    : isGcash
+    ? 'border-blue-500 bg-blue-50'
+    : 'border-emerald-500 bg-emerald-50';
+
+  const cycleBadgeTheme = isUnpaid
+    ? 'bg-red-200/80 text-red-800 hover:bg-red-300'
+    : isGcash
+    ? 'bg-blue-200/80 text-blue-800 hover:bg-blue-300'
+    : 'bg-emerald-200/80 text-emerald-800 hover:bg-emerald-300';
+
+  const paidBannerTheme = isGcash
+    ? 'bg-blue-200/80 text-blue-900 border-blue-300'
+    : 'bg-emerald-200/80 text-emerald-900 border-emerald-300';
+
   return (
     <div
-      className={`rounded-3xl border-4 bg-white p-4 shadow-sm transition ${
-        isUnpaid ? 'border-red-500' : 'border-emerald-500'
-      }`}
+      className={`rounded-3xl border-4 p-4 shadow-md transition ${cardTheme}`}
     >
-      {/* Top Row: Tag Badge + Customer Details + Price & Payment (Stacked cleanly on mobile to prevent overlap) */}
+      {/* Top Row: Tag Badge + Customer Details + Price & Payment */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
         
         {/* Left Side: Tag + Name/Service/Status */}
@@ -70,18 +86,18 @@ export default function OrderCard({ order, onAdvanceStatus, onRevertStatus, onMa
             <h3 className="text-base font-black text-slate-900 leading-tight truncate">
               {order.customer_name}
             </h3>
-            <p className="text-xs font-bold text-slate-600 mt-0.5 flex items-center gap-1 truncate">
+            <p className="text-xs font-bold text-slate-700 mt-0.5 flex items-center gap-1 truncate">
               <span>{serviceInfo.icon}</span> <span className="truncate">{serviceInfo.label}</span> ({order.load_count}x)
             </p>
             <div className="flex items-center gap-2 mt-0.5">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              <p className="text-[10px] font-black uppercase tracking-wider text-slate-600">
                 STATUS: {order.status.replace('_', ' ')}
               </p>
               
               {order.status !== 'queued' && (
                 <button
                   onClick={() => onRevertStatus(order.id)}
-                  className="flex items-center gap-0.5 text-[10px] font-black text-amber-600 hover:text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200 active:scale-95"
+                  className="flex items-center gap-0.5 text-[10px] font-black text-amber-800 hover:text-amber-900 bg-amber-200 px-1.5 py-0.5 rounded-md border border-amber-300 active:scale-95"
                   title="Revert status"
                 >
                   <RotateCcw className="h-3 w-3" /> Back
@@ -92,15 +108,13 @@ export default function OrderCard({ order, onAdvanceStatus, onRevertStatus, onMa
         </div>
 
         {/* Right Side: Price & Payment Badge */}
-        <div className="flex items-center justify-between sm:flex-col sm:items-end shrink-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
+        <div className="flex items-center justify-between sm:flex-col sm:items-end shrink-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-300/60">
           <p className="text-xl font-black text-slate-900">₱{order.amount}</p>
           
           <div className="flex items-center gap-1.5 mt-0.5">
             <button
               onClick={handleCyclePayment}
-              className={`rounded-lg px-2.5 py-1 text-xs font-black uppercase transition active:scale-95 shadow-xs ${
-                isUnpaid ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-              }`}
+              className={`rounded-lg px-2.5 py-1 text-xs font-black uppercase transition active:scale-95 shadow-xs ${cycleBadgeTheme}`}
               title="Tap to change payment method"
             >
               {order.payment_method} 🔄
@@ -109,7 +123,7 @@ export default function OrderCard({ order, onAdvanceStatus, onRevertStatus, onMa
             {order.status === 'queued' && (
               <button
                 onClick={handleDelete}
-                className="rounded-lg bg-red-100 p-1.5 text-red-600 hover:bg-red-200 active:scale-95 transition"
+                className="rounded-lg bg-red-200 p-1.5 text-red-700 hover:bg-red-300 active:scale-95 transition"
                 title="Delete order"
               >
                 <Trash2 className="h-4 w-4" />
@@ -132,13 +146,13 @@ export default function OrderCard({ order, onAdvanceStatus, onRevertStatus, onMa
             </button>
             <button
               onClick={() => onMarkPaid(order.id, 'gcash')}
-              className="flex items-center justify-center rounded-xl bg-sky-600 py-3 text-xs font-black text-white active:scale-95 shadow"
+              className="flex items-center justify-center rounded-xl bg-blue-600 py-3 text-xs font-black text-white active:scale-95 shadow"
             >
               GCASH
             </button>
           </div>
         ) : (
-          <div className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-50 py-3 text-xs font-black text-emerald-700 border border-emerald-200">
+          <div className={`flex items-center justify-center gap-1.5 rounded-xl py-3 text-xs font-black border ${paidBannerTheme}`}>
             <CheckCircle2 className="h-4 w-4" /> PAID ({order.payment_method.toUpperCase()})
           </div>
         )}
