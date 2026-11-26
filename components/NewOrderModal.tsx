@@ -85,6 +85,9 @@ export default function NewOrderModal({
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [selectedAddonsInventory, setSelectedAddonsInventory] = useState<Record<string, boolean>>({});
 
+  // Agentic AI Velocity State (Learned Averages in Minutes)
+  const [serviceAverages, setServiceAverages] = useState<Record<string, number>>({});
+
   // Quick Inline Service Creator State
   const [isAddingService, setIsAddingService] = useState(false);
   const [newServiceName, setNewServiceName] = useState('');
@@ -96,6 +99,7 @@ export default function NewOrderModal({
       fetchShopCatalog();
       fetchCustomers();
       fetchInventory();
+      fetchServiceAverages(); // 🧠 Fetch Agentic AI learned turnaround velocity
       setSelectedAddonIds([]);
       setCustomAmount('');
       setIsAddingService(false);
@@ -147,11 +151,45 @@ export default function NewOrderModal({
     if (!error && data) {
       setInventoryItems(data);
       const defaults: Record<string, boolean> = {};
-      // 🧠 Default ALL inventory supplies to checked so nothing is accidentally skipped!
       data.forEach((item) => {
         defaults[item.id] = true;
       });
       setSelectedAddonsInventory(defaults);
+    }
+  };
+
+  // 🧠 Agentic AI: Compute real shop velocity based on completed order durations
+  const fetchServiceAverages = async () => {
+    if (!shopId) return;
+    const { data, error } = await supabase
+      .from('orders')
+      .select('service_id, started_at, completed_at, load_count')
+      .eq('shop_id', shopId)
+      .eq('status', 'ready') // or completed depending on status naming
+      .not('started_at', 'is', null)
+      .not('completed_at', 'is', null);
+
+    if (!error && data) {
+      const serviceTotals: Record<string, { totalMins: number; count: number }> = {};
+      
+      data.forEach((order) => {
+        if (!order.service_id || !order.started_at || !order.completed_at) return;
+        const durationMins = (new Date(order.completed_at).getTime() - new Date(order.started_at).getTime()) / 60000;
+        const perLoadMins = durationMins / (order.load_count || 1);
+
+        if (!serviceTotals[order.service_id]) {
+          serviceTotals[order.service_id] = { totalMins: 0, count: 0 };
+        }
+        serviceTotals[order.service_id].totalMins += perLoadMins;
+        serviceTotals[order.service_id].count += 1;
+      });
+
+      const averages: Record<string, number> = {};
+      Object.keys(serviceTotals).forEach((sId) => {
+        averages[sId] = Math.round(serviceTotals[sId].totalMins / serviceTotals[sId].count);
+      });
+
+      setServiceAverages(averages);
     }
   };
 
@@ -218,6 +256,7 @@ export default function NewOrderModal({
     return `Basket #${num}`;
   }, [activeOrders]);
 
+  // Pricing calculations
   const currentService = services.find((s) => s.id === selectedServiceId);
   const baseServicePrice = currentService ? Number(currentService.base_price) * loadCount : 0;
   
@@ -229,12 +268,18 @@ export default function NewOrderModal({
   const calculatedTotal = baseServicePrice + surchargeAddonsTotal;
   const finalAmount = customAmount !== '' ? Math.max(0, parseInt(customAmount, 10) || 0) : calculatedTotal;
 
+  // 🧠 Agentic AI Dynamic Queue & Velocity Ready Time Calculation
+  const baselineMinsPerLoad = currentService 
+    ? (serviceAverages[currentService.id] || currentService.estimated_minutes || 45)
+    : 45;
+
+  const serviceMins = baselineMinsPerLoad * loadCount;
+
   const activeQueueLoads = activeOrders
     .filter((o) => o.status === 'queued' || o.status === 'washing')
     .reduce((sum, o) => sum + o.load_count, 0);
 
-  const serviceMins = currentService ? currentService.estimated_minutes * loadCount : 50 * loadCount;
-  const estimatedMinutes = serviceMins + activeQueueLoads * 15;
+  const estimatedMinutes = serviceMins + (activeQueueLoads * 12);
   const estimatedReadyDate = new Date(Date.now() + estimatedMinutes * 60_000);
 
   const filteredCustomers = useMemo(() => {
@@ -315,7 +360,6 @@ export default function NewOrderModal({
             
             const multiplier = matchedAddon ? matchedAddon.inventory_multiplier : 1.0;
             
-            // 🧠 Case-insensitive & robust unit normalization for kg and L:
             let rawConsumption = Number(item.consumption_per_load || 1.0);
             const unitLower = (item.unit || '').toLowerCase();
             if ((unitLower === 'kg' || unitLower === 'l') && rawConsumption >= 10) {
@@ -370,7 +414,7 @@ export default function NewOrderModal({
         <div className="flex items-center justify-between border-b p-4 bg-slate-900 text-white shrink-0">
           <div>
             <h2 className="text-base font-black tracking-tight">Log New Laundry</h2>
-            <p className="text-[11px] text-slate-400">Custom services & analogical pricing</p>
+            <p className="text-[11px] text-slate-400">Agentic AI adaptive queue timing</p>
           </div>
           <button onClick={onClose} className="rounded-full bg-slate-800 p-2 text-slate-300 hover:text-white active:scale-95">
             <X className="h-5 w-5" />
@@ -383,7 +427,7 @@ export default function NewOrderModal({
           {/* Customer Name Input */}
           <div className="relative">
             <label className="text-xs font-bold uppercase text-slate-400 mb-1 flex items-center justify-between">
-              <span>Customer / Student Name</span>
+              <span>Customer Name</span>
               {selectedCustomerId && (
                 <span className="text-emerald-600 font-black flex items-center gap-1 text-[10px]">
                   <Sparkles className="h-3 w-3" /> Regular CRM Profile Linked
@@ -399,7 +443,7 @@ export default function NewOrderModal({
                 setIsSearchingCustomer(true);
               }}
               onFocus={() => setIsSearchingCustomer(true)}
-              placeholder="e.g., John (BSCS) or Walk-in"
+              placeholder="e.g., Alex"
               className="w-full rounded-2xl border-2 border-slate-200 px-4 py-3 text-base font-bold text-slate-800 focus:border-slate-900 focus:outline-none bg-slate-50"
             />
 
@@ -427,14 +471,16 @@ export default function NewOrderModal({
             )}
           </div>
 
-          {/* Tag & Est Ready Info */}
+          {/* Tag & AI Adaptive Est Ready Info */}
           <div className="flex items-center justify-between bg-slate-50 p-3 rounded-2xl border border-slate-200">
             <div className="flex items-center gap-3">
               <span className="rounded-xl bg-slate-900 px-3 py-1.5 text-lg font-black text-white">
                 {nextAutoTag}
               </span>
               <div>
-                <p className="text-[10px] font-black uppercase text-slate-400">Est. Ready Time</p>
+                <p className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
+                  <Sparkles className="h-3 w-3 text-amber-500" /> AI Adaptive Est. Ready
+                </p>
                 <p className="text-xs font-bold text-slate-700">
                   {estimatedReadyDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </p>
@@ -590,7 +636,7 @@ export default function NewOrderModal({
             </div>
           )}
 
-          {/* Flexible Inventory Consumables Checklist (Default Checked) */}
+          {/* Flexible Inventory Consumables Checklist */}
           {inventoryItems.length > 0 && (
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5 space-y-2">
               <div className="flex items-center gap-1.5 text-slate-700">
@@ -625,7 +671,7 @@ export default function NewOrderModal({
             </div>
           )}
 
-          {/* Analogical Editable Total Amount with Auto-Calculated Default Display */}
+          {/* Analogical Editable Total Amount */}
           <div className="rounded-2xl bg-slate-900 p-4 text-white space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Amount (Editable)</span>
@@ -645,7 +691,7 @@ export default function NewOrderModal({
               />
             </div>
 
-            {/* Quick +₱5 / +₱10 / +₱20 / +₱50 Step Buttons for Fast Editing */}
+            {/* Quick +₱5 / +₱10 / +₱20 / +₱50 Step Buttons */}
             <div className="flex items-center gap-1.5 pt-1">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">Quick Add:</span>
               {[5, 10, 20, 50].map((val) => (
