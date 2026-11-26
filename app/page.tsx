@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/utils/supabase/client';
-import { Order, OrderStatus, PaymentMethod, ServiceType } from '@/types/laundry';
+import { Order, OrderStatus, PaymentMethod } from '@/types/laundry';
 import OrderCard from '@/components/OrderCard';
 import NewOrderModal from '@/components/NewOrderModal';
 import ProInsightsDrawer from '@/components/ProInsightsDrawer';
@@ -26,7 +26,7 @@ export default function LaundryTapBoard() {
   const [isInventoryOpen, setIsInventoryOpen] = useState(false); // Inventory Drawer State
   const [isHistoryOpen, setIsHistoryOpen] = useState(false); // Shift History Modal State
   const [isIncomeModalOpen, setIsIncomeModalOpen] = useState(false); // Income Report Modal State
-  const [isShopSettingsOpen, setIsShopSettingsOpen] = useState(false); // Shop Setup Modal State
+  const [isRenameModalOpen, setIsRenameModalOpen] = useState(false); // Rename Shop Modal State
   const [loading, setLoading] = useState(true);
 
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
@@ -89,12 +89,12 @@ export default function LaundryTapBoard() {
     setSubscriptionTier(currentTier);
 
     if (currentShopId) {
-      // Load all orders so financial ledger tracks shift earnings permanently
+      // Load all orders sorted ASCENDING so Basket #1 stays at the top of the rack
       const { data } = await supabase
         .from('orders')
         .select('*')
         .eq('shop_id', currentShopId)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: true });
 
       if (data) setOrders(data as Order[]);
     }
@@ -117,7 +117,10 @@ export default function LaundryTapBoard() {
   const handleCreateOrder = async (payload: {
     tag_number: string;
     customer_name: string;
-    service_type: ServiceType;
+    customer_id?: string;
+    service_id?: string;
+    service_type: string;
+    addons_snapshot?: any[];
     load_count: number;
     amount: number;
     payment_method: PaymentMethod;
@@ -126,15 +129,32 @@ export default function LaundryTapBoard() {
     if (!shopId) return;
     const { data, error } = await supabase
       .from('orders')
-      .insert([{ ...payload, shop_id: shopId, status: 'queued' }])
+      .insert([{ 
+        shop_id: shopId, 
+        tag_number: payload.tag_number,
+        customer_name: payload.customer_name,
+        customer_id: payload.customer_id,
+        service_id: payload.service_id,
+        service_type: payload.service_type,
+        addons_snapshot: payload.addons_snapshot || [],
+        load_count: payload.load_count,
+        amount: payload.amount,
+        payment_method: payload.payment_method,
+        estimated_ready_at: payload.estimated_ready_at,
+        status: 'queued' 
+      }])
       .select()
       .single();
 
     if (!error && data) {
-      setOrders((prev) => [data as Order, ...prev]);
+      // Append new orders to the bottom so Basket #1 stays on top
+      setOrders((prev) => [...prev, data as Order]);
+    } else {
+      console.error('Error creating order:', error);
+      alert('Failed to create order. Check console.');
     }
   };
-
+  
   const handleAdvanceStatus = async (orderId: string, nextStatus: OrderStatus) => {
     const targetOrder = orders.find((o) => o.id === orderId);
     if (!targetOrder) return;
@@ -281,33 +301,32 @@ export default function LaundryTapBoard() {
 
   return (
     <main className="min-h-screen bg-slate-100 pb-28">
-      {/* Top Summary Bar - Constrained to max-w-md and centered to match main body */}
+      {/* Top Summary Bar */}
       <header className="sticky top-0 z-30 bg-slate-900 shadow-md">
         <div className="mx-auto max-w-md px-4 py-3 text-white space-y-2.5">
-          {/* Row 1: Shop Name & Utility Icons */}
-          <div className="flex items-center justify-between gap-2">
+          {/* Row 1: Shop Name & Utility Icons (Fully Responsive Mobile Fit) */}
+          <div className="flex items-center justify-between gap-1">
             <div 
-              className="flex items-center gap-1.5 cursor-pointer group min-w-0 flex-1" 
-              onClick={() => setIsShopSettingsOpen(true)} 
+              className="flex items-center gap-1 cursor-pointer group min-w-0 flex-1 pr-1" 
+              onClick={() => setIsRenameModalOpen(true)} 
               title="Edit Shop Name"
             >
-              <h1 className="text-sm font-black tracking-tight truncate group-hover:underline">{shopName}</h1>
-              <span className="text-[10px] text-slate-400 shrink-0">⚙️</span>
+              <h1 className="text-xs sm:text-sm font-black tracking-tight truncate group-hover:underline">{shopName}</h1>
+              <span className="text-[10px] text-slate-400 shrink-0">✏️</span>
             </div>
 
             <div className="flex items-center gap-1 shrink-0">
               <button
                 onClick={() => setIsIncomeModalOpen(true)}
-                className="rounded-xl bg-emerald-700 px-2.5 py-2 text-xs font-black text-white hover:bg-emerald-800 active:scale-95 border border-emerald-600 shadow-xs flex items-center gap-1"
+                className="rounded-xl bg-emerald-700 px-2 py-1.5 text-[11px] font-black text-white hover:bg-emerald-800 active:scale-95 border border-emerald-600 shadow-xs flex items-center gap-1"
                 title="Income Report"
               >
                 💰 <span className="text-[9px] uppercase hidden xs:inline">Report</span>
               </button>
 
-              {/* Inventory Drawer Toggle Button */}
               <button
                 onClick={() => setIsInventoryOpen(true)}
-                className="h-8.5 w-9 flex items-center justify-center rounded-xl bg-slate-800 text-slate-300 hover:text-white active:scale-95 border border-slate-700 shadow-xs"
+                className="h-8 w-8 flex items-center justify-center rounded-xl bg-slate-800 text-slate-300 hover:text-white active:scale-95 border border-slate-700 shadow-xs text-sm"
                 title="Inventory & Stock"
               >
                 📦
@@ -318,7 +337,7 @@ export default function LaundryTapBoard() {
                 className="rounded-xl bg-slate-800 p-2 text-slate-300 hover:text-white active:scale-95 border border-slate-700 shadow-xs"
                 title="Shift History"
               >
-                <History className="h-4 w-4" />
+                <History className="h-3.5 w-3.5" />
               </button>
 
               <button
@@ -326,7 +345,7 @@ export default function LaundryTapBoard() {
                 className="rounded-xl bg-slate-800 p-2 text-slate-400 hover:text-white active:scale-95 border border-slate-700 shadow-xs"
                 title="Log Out"
               >
-                <LogOut className="h-4 w-4" />
+                <LogOut className="h-3.5 w-3.5" />
               </button>
             </div>
           </div>
@@ -407,13 +426,13 @@ export default function LaundryTapBoard() {
         </div>
       </div>
 
-      {/* Shop Setup & Settings Modal */}
-      {isShopSettingsOpen && (
+      {/* Rename Shop Modal */}
+      {isRenameModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3">
           <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b pb-3">
-              <h2 className="text-base font-black text-slate-900">Shop Setup & Settings</h2>
-              <button onClick={() => setIsShopSettingsOpen(false)} className="rounded-full bg-slate-100 p-2 text-slate-600">
+              <h2 className="text-base font-black text-slate-900">Change Shop Name</h2>
+              <button onClick={() => setIsRenameModalOpen(false)} className="rounded-full bg-slate-100 p-2 text-slate-600">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -432,7 +451,7 @@ export default function LaundryTapBoard() {
               onClick={async () => {
                 if (!shopId) return;
                 await supabase.from('shops').update({ name: shopName }).eq('id', shopId);
-                setIsShopSettingsOpen(false);
+                setIsRenameModalOpen(false);
               }}
               className="w-full rounded-2xl bg-slate-900 py-3.5 text-sm font-black text-white shadow-md active:scale-95"
             >
