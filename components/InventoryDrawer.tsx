@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { X, Package, AlertTriangle, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Order } from '@/types/laundry';
 
 interface InventoryItem {
   id: string;
@@ -19,6 +20,7 @@ interface InventoryDrawerProps {
   onClose: () => void;
   shopId: string | null;
   subscriptionTier: string;
+  activeOrders?: Order[]; // Added activeOrders prop optionally
 }
 
 export default function InventoryDrawer({
@@ -26,6 +28,7 @@ export default function InventoryDrawer({
   onClose,
   shopId,
   subscriptionTier,
+  activeOrders = [], // Safe fallback array
 }: InventoryDrawerProps) {
   const supabase = createClient();
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -247,7 +250,7 @@ export default function InventoryDrawer({
           )}
         </div>
 
-        {/* Add New Supply Form with Fixed Single-Line Header Alignment */}
+        {/* Add New Supply Form */}
         <form onSubmit={handleAddItem} className="border-t bg-slate-50 p-4 space-y-3 shrink-0">
           <p className="text-xs font-black uppercase tracking-wider text-slate-700">Add Supply Item (Precision Ledger)</p>
           
@@ -262,10 +265,9 @@ export default function InventoryDrawer({
             />
           </div>
 
-          {/* Grid layout with single-line truncated labels to ensure perfect horizontal alignment */}
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block truncate" title="Total Stock Qty">
+              <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block truncate" title="Stock Qty">
                 Stock Qty
               </label>
               <input
@@ -301,7 +303,7 @@ export default function InventoryDrawer({
             </div>
 
             <div>
-              <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block truncate" title="Dose per load">
+              <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block truncate" title="Dose / Load">
                 Dose / Load
               </label>
               <input

@@ -71,7 +71,7 @@ export default function NewOrderModal({
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
   
   const [loadCount, setLoadCount] = useState(1);
-  const [customAmount, setCustomAmount] = useState<string>(''); // String state allows clean clearing/backspacing
+  const [customAmount, setCustomAmount] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('unpaid');
   const [submitting, setSubmitting] = useState(false);
   const [customerName, setCustomerName] = useState('');
@@ -85,7 +85,7 @@ export default function NewOrderModal({
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [selectedAddonsInventory, setSelectedAddonsInventory] = useState<Record<string, boolean>>({});
 
-  // Quick Inline Service Creator State (Time estimate removed for Agentic AI)
+  // Quick Inline Service Creator State
   const [isAddingService, setIsAddingService] = useState(false);
   const [newServiceName, setNewServiceName] = useState('');
   const [newServicePrice, setNewServicePrice] = useState('');
@@ -147,16 +147,14 @@ export default function NewOrderModal({
     if (!error && data) {
       setInventoryItems(data);
       const defaults: Record<string, boolean> = {};
+      // 🧠 Default ALL inventory supplies to checked so nothing is accidentally skipped!
       data.forEach((item) => {
-        if (item.item_name.toLowerCase().includes('detergent') || item.item_name.toLowerCase().includes('powder')) {
-          defaults[item.id] = true;
-        }
+        defaults[item.id] = true;
       });
       setSelectedAddonsInventory(defaults);
     }
   };
 
-  // Quick inline creation (fixed time estimate default to 50 mins behind the scenes)
   const handleQuickCreateService = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isCreatingService || !shopId || !newServiceName || !newServicePrice) return;
@@ -169,7 +167,7 @@ export default function NewOrderModal({
           shop_id: shopId,
           name: newServiceName.trim(),
           base_price: parseFloat(newServicePrice),
-          estimated_minutes: 50, // Default baseline for AI queue calculation
+          estimated_minutes: 50,
           pricing_unit: 'per_load',
         })
         .select()
@@ -220,7 +218,6 @@ export default function NewOrderModal({
     return `Basket #${num}`;
   }, [activeOrders]);
 
-  // Calculate pricing
   const currentService = services.find((s) => s.id === selectedServiceId);
   const baseServicePrice = currentService ? Number(currentService.base_price) * loadCount : 0;
   
@@ -232,7 +229,6 @@ export default function NewOrderModal({
   const calculatedTotal = baseServicePrice + surchargeAddonsTotal;
   const finalAmount = customAmount !== '' ? Math.max(0, parseInt(customAmount, 10) || 0) : calculatedTotal;
 
-  // Queue Estimator
   const activeQueueLoads = activeOrders
     .filter((o) => o.status === 'queued' || o.status === 'washing')
     .reduce((sum, o) => sum + o.load_count, 0);
@@ -319,10 +315,10 @@ export default function NewOrderModal({
             
             const multiplier = matchedAddon ? matchedAddon.inventory_multiplier : 1.0;
             
-            // Normalized consumption calculation: 
-            // If stock is in kg/L but dose was entered in grams/mL (e.g. >= 10), convert it down automatically!
+            // 🧠 Case-insensitive & robust unit normalization for kg and L:
             let rawConsumption = Number(item.consumption_per_load || 1.0);
-            if ((item.unit === 'kg' || item.unit === 'L') && rawConsumption >= 10) {
+            const unitLower = (item.unit || '').toLowerCase();
+            if ((unitLower === 'kg' || unitLower === 'l') && rawConsumption >= 10) {
               rawConsumption = rawConsumption / 1000;
             }
 
@@ -446,7 +442,7 @@ export default function NewOrderModal({
             </div>
           </div>
 
-          {/* DYNAMIC SERVICE SELECTOR (Time Estimate input removed) */}
+          {/* DYNAMIC SERVICE SELECTOR */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[11px] font-black uppercase tracking-wider text-slate-500">Service Type</label>
@@ -467,7 +463,6 @@ export default function NewOrderModal({
               </button>
             </div>
 
-            {/* Inline Quick Service Creator (Clean 2-field form) */}
             {isAddingService && (
               <form onSubmit={handleQuickCreateService} className="rounded-2xl border-2 border-blue-200 bg-blue-50/50 p-3 space-y-2.5 mb-2">
                 <p className="text-xs font-black text-blue-900">Create New Service On-the-Fly</p>
@@ -595,7 +590,7 @@ export default function NewOrderModal({
             </div>
           )}
 
-          {/* Flexible Inventory Consumables Checklist */}
+          {/* Flexible Inventory Consumables Checklist (Default Checked) */}
           {inventoryItems.length > 0 && (
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5 space-y-2">
               <div className="flex items-center gap-1.5 text-slate-700">
@@ -674,7 +669,7 @@ export default function NewOrderModal({
             </div>
           </div>
 
-          {/* Payment Toggle (Unpaid / Cash / GCash) */}
+          {/* Payment Toggle */}
           <div className="grid grid-cols-3 gap-2">
             {(['unpaid', 'cash', 'gcash'] as PaymentMethod[]).map((method) => {
               const active = paymentMethod === method;
