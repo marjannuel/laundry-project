@@ -319,7 +319,7 @@ export default function NewOrderModal({
             
             const multiplier = matchedAddon ? matchedAddon.inventory_multiplier : 1.0;
             
-            // 🧠 Normalized consumption calculation: 
+            // Normalized consumption calculation: 
             // If stock is in kg/L but dose was entered in grams/mL (e.g. >= 10), convert it down automatically!
             let rawConsumption = Number(item.consumption_per_load || 1.0);
             if ((item.unit === 'kg' || item.unit === 'L') && rawConsumption >= 10) {
@@ -630,7 +630,7 @@ export default function NewOrderModal({
             </div>
           )}
 
-          {/* Analogical Editable Total Amount with Quick Increment Chips & No Centavos */}
+          {/* Analogical Editable Total Amount with Auto-Calculated Default Display */}
           <div className="rounded-2xl bg-slate-900 p-4 text-white space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Amount (Editable)</span>
@@ -643,13 +643,8 @@ export default function NewOrderModal({
                 type="number"
                 step="1"
                 placeholder="0"
-                value={customAmount}
+                value={customAmount !== '' ? customAmount : calculatedTotal}
                 onChange={(e) => setCustomAmount(e.target.value)}
-                onFocus={() => {
-                  if (customAmount === '') {
-                    setCustomAmount(String(calculatedTotal));
-                  }
-                }}
                 className="w-full bg-transparent text-2xl font-black text-white focus:outline-none border-b border-slate-700 focus:border-amber-400 pb-0.5"
                 required
               />
@@ -670,7 +665,7 @@ export default function NewOrderModal({
               ))}
               <button
                 type="button"
-                onClick={() => setCustomAmount(String(calculatedTotal))}
+                onClick={() => setCustomAmount('')}
                 className="ml-auto rounded-lg bg-slate-800 px-2 py-1 text-[10px] font-bold text-slate-300 hover:bg-slate-700"
                 title="Reset to calculated total"
               >
