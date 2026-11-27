@@ -107,7 +107,7 @@ export default function LaundryTapBoard() {
     }
   }, [isAuthenticated, loadShopAndOrders]);
 
-  // ⚡ Supabase Realtime Listener for multi-device sync (Orders & Inventory)
+  // ⚡ Supabase Realtime Listener for multi-device sync (Orders)
   useEffect(() => {
     if (!shopId) return;
 
@@ -119,17 +119,18 @@ export default function LaundryTapBoard() {
           event: '*',
           schema: 'public',
           table: 'orders',
-          filter: `shop_id=eq.${shopId}`,
         },
         (payload) => {
           if (payload.eventType === 'INSERT') {
             const newOrder = payload.new as Order;
+            if (newOrder.shop_id !== shopId) return;
             setOrders((prev) => {
               if (prev.some((o) => o.id === newOrder.id)) return prev;
               return [...prev, newOrder];
             });
           } else if (payload.eventType === 'UPDATE') {
             const updatedOrder = payload.new as Order;
+            if (updatedOrder.shop_id !== shopId) return;
             setOrders((prev) =>
               prev.map((o) => (o.id === updatedOrder.id ? updatedOrder : o))
             );
@@ -137,18 +138,6 @@ export default function LaundryTapBoard() {
             const deletedId = payload.old.id;
             setOrders((prev) => prev.filter((o) => o.id !== deletedId));
           }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'inventory',
-          filter: `shop_id=eq.${shopId}`,
-        },
-        () => {
-          // Triggers a subtle notification or state update if inventory changes cross-device
         }
       )
       .subscribe();

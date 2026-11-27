@@ -7,6 +7,7 @@ import { Order } from '@/types/laundry';
 
 interface InventoryItem {
   id: string;
+  shop_id: string;
   item_name: string;
   category: string;
   current_stock: number;
@@ -84,17 +85,18 @@ export default function InventoryDrawer({
           event: '*',
           schema: 'public',
           table: 'inventory',
-          filter: `shop_id=eq.${shopId}`,
         },
         (payload) => {
           if (payload.eventType === 'INSERT') {
             const newItem = payload.new as InventoryItem;
+            if (newItem.shop_id !== shopId) return;
             setItems((prev) => {
               if (prev.some((item) => item.id === newItem.id)) return prev;
               return sortInventoryByPriority([...prev, newItem]);
             });
           } else if (payload.eventType === 'UPDATE') {
             const updatedItem = payload.new as InventoryItem;
+            if (updatedItem.shop_id !== shopId) return;
             setItems((prev) =>
               sortInventoryByPriority(
                 prev.map((item) => (item.id === updatedItem.id ? updatedItem : item))
