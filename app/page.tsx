@@ -11,6 +11,7 @@ import { Plus, Sparkles, LogOut, History, X } from 'lucide-react';
 import UpgradeModal from '@/components/UpgradeModal';
 import InventoryDrawer from '@/components/InventoryDrawer';
 import AddonsDrawer from '@/components/AddonsDrawer';
+import CustomersDrawer from '@/components/CustomersDrawer';
 
 // Helper to format remaining trial time (e.g., "6d 14h" or "Expiring soon")
 const getTrialTimeRemaining = (trialEndsAt: string | null) => {
@@ -43,6 +44,7 @@ export default function LaundryTapBoard() {
   const [isInsightsOpen, setIsInsightsOpen] = useState(false);
   const [isInventoryOpen, setIsInventoryOpen] = useState(false); // Inventory Drawer State
   const [isAddonsDrawerOpen, setIsAddonsDrawerOpen] = useState(false); // Addons Manager Drawer State
+  const [isCustomersOpen, setIsCustomersOpen] = useState(false); // Customers CRM Drawer State
   const [isHistoryOpen, setIsHistoryOpen] = useState(false); // Shift History Modal State
   const [isIncomeModalOpen, setIsIncomeModalOpen] = useState(false); // Income Report Modal State
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false); // Rename Shop Modal State
@@ -126,14 +128,39 @@ export default function LaundryTapBoard() {
     setTrialEndsAt(currentTrialEndsAt);
 
     if (currentShopId) {
-      // Load all orders sorted ASCENDING so Basket #1 stays at the top of the rack
-      const { data } = await supabase
+      // 1. Fetch orders and join customers table
+      const { data: ordersData } = await supabase
         .from('orders')
-        .select('*')
+        .select('*, customers(facebook_link)')
         .eq('shop_id', currentShopId)
         .order('created_at', { ascending: true });
 
-      if (data) setOrders(data as Order[]);
+      // 2. Fetch all customers for name-match fallback
+      const { data: allCustomers } = await supabase
+        .from('customers')
+        .select('nickname, facebook_link')
+        .eq('shop_id', currentShopId);
+
+      if (ordersData) {
+        const formattedOrders = ordersData.map((o: any) => {
+          // Try relation join first, then fallback to name matching
+          let fb = o.customers?.facebook_link || '';
+          if (!fb && allCustomers && o.customer_name) {
+            const matched = allCustomers.find(
+              (c) => c.nickname.toLowerCase() === o.customer_name.toLowerCase()
+            );
+            if (matched) {
+              fb = matched.facebook_link || '';
+            }
+          }
+
+          return {
+            ...o,
+            facebook_link: fb,
+          };
+        });
+        setOrders(formattedOrders as Order[]);
+      }
     }
     setLoading(false);
   }, [supabase]);
@@ -224,9 +251,35 @@ export default function LaundryTapBoard() {
       .single();
 
     if (!error && data) {
+      // ⚡ Instantly resolve facebook link upon creation so the Chat button appears immediately!
+      let resolvedFb = '';
+      if (payload.customer_id) {
+        const { data: custData } = await supabase
+          .from('customers')
+          .select('facebook_link')
+          .eq('id', payload.customer_id)
+          .single();
+        if (custData) resolvedFb = custData.facebook_link || '';
+      }
+
+      if (!resolvedFb && payload.customer_name) {
+        const { data: nameCust } = await supabase
+          .from('customers')
+          .select('facebook_link')
+          .eq('shop_id', shopId)
+          .ilike('nickname', payload.customer_name)
+          .single();
+        if (nameCust) resolvedFb = nameCust.facebook_link || '';
+      }
+
+      const orderWithFb = {
+        ...data,
+        facebook_link: resolvedFb,
+      };
+
       setOrders((prev) => {
         if (prev.some((o) => o.id === data.id)) return prev;
-        return [...prev, data as Order];
+        return [...prev, orderWithFb as Order];
       });
     } else {
       console.error('Error creating order:', error);
@@ -419,49 +472,26 @@ export default function LaundryTapBoard() {
     <main className="min-h-screen bg-slate-100 pb-28">
       {/* Top Summary Bar */}
       <header className="sticky top-0 z-30 bg-slate-900 shadow-md">
-        <div className="mx-auto max-w-md px-4 py-3 text-white space-y-2.5">
-          {/* Row 1: Shop Name & Utility Icons (Fully Responsive Mobile Fit) */}
-          <div className="flex items-center justify-between gap-1">
+        <div className="mx-auto max-w-md px-4 py-3 text-white space-y-3">
+          
+          {/* Row 1: Shop Name (Full Readability) + Essential Session Actions */}
+          <div className="flex items-center justify-between gap-2">
             <div 
-              className="flex items-center gap-1 cursor-pointer group min-w-0 flex-1 pr-1" 
+              className="flex items-center gap-1.5 cursor-pointer group min-w-0 flex-1" 
               onClick={() => setIsRenameModalOpen(true)} 
               title="Edit Shop Name"
             >
-              <h1 className="text-xs sm:text-sm font-black tracking-tight truncate group-hover:underline">{shopName}</h1>
-              <span className="text-[10px] text-slate-400 shrink-0">✏️</span>
+              <h1 className="text-sm sm:text-base font-black tracking-tight truncate group-hover:underline">{shopName}</h1>
+              <span className="text-xs text-slate-400 shrink-0">✏️</span>
             </div>
 
-            <div className="flex items-center gap-1 shrink-0">
-              <button
-                onClick={() => setIsIncomeModalOpen(true)}
-                className="rounded-xl bg-emerald-700 px-2 py-1.5 text-[11px] font-black text-white hover:bg-emerald-800 active:scale-95 border border-emerald-600 shadow-xs flex items-center gap-1"
-                title="Income Report"
-              >
-                💰 <span className="text-[9px] uppercase hidden xs:inline">Report</span>
-              </button>
-
-              <button
-                onClick={() => setIsInventoryOpen(true)}
-                className="h-8 w-8 flex items-center justify-center rounded-xl bg-slate-800 text-slate-300 hover:text-white active:scale-95 border border-slate-700 shadow-xs text-sm"
-                title="Inventory & Stock"
-              >
-                📦
-              </button>
-
-              <button
-                onClick={() => setIsAddonsDrawerOpen(true)}
-                className="h-8 w-8 flex items-center justify-center rounded-xl bg-slate-800 text-slate-300 hover:text-white active:scale-95 border border-slate-700 shadow-xs text-sm"
-                title="Manage Surcharge Chips"
-              >
-                🏷️
-              </button>
-
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 onClick={() => setIsHistoryOpen(true)}
                 className="rounded-xl bg-slate-800 p-2 text-slate-300 hover:text-white active:scale-95 border border-slate-700 shadow-xs"
                 title="Shift History"
               >
-                <History className="h-3.5 w-3.5" />
+                <History className="h-4 w-4" />
               </button>
 
               <button
@@ -469,16 +499,51 @@ export default function LaundryTapBoard() {
                 className="rounded-xl bg-slate-800 p-2 text-slate-400 hover:text-white active:scale-95 border border-slate-700 shadow-xs"
                 title="Log Out"
               >
-                <LogOut className="h-3.5 w-3.5" />
+                <LogOut className="h-4 w-4" />
               </button>
             </div>
           </div>
 
-          <div className="-mt-1">
-            <p className="text-[10px] font-semibold text-slate-400">{activeOrdersOnRack.length} Active Bags on Rack</p>
+          {/* Row 2: Management Ribbon & Active Bags Count */}
+          <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800">
+            <p className="text-[11px] font-bold text-slate-400">{activeOrdersOnRack.length} Active Bags on Rack</p>
+
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => setIsIncomeModalOpen(true)}
+                className="rounded-xl bg-emerald-600 px-2.5 py-1.5 text-[11px] font-black text-white hover:bg-emerald-700 active:scale-95 border border-emerald-500 shadow-xs flex items-center gap-1"
+                title="Income Report"
+              >
+                💰 <span className="uppercase text-[10px]">Report</span>
+              </button>
+
+              <button
+                onClick={() => setIsInventoryOpen(true)}
+                className="h-8 px-2.5 flex items-center gap-1 rounded-xl bg-slate-800 text-slate-300 hover:text-white active:scale-95 border border-slate-700 shadow-xs text-xs font-bold"
+                title="Inventory & Stock"
+              >
+                📦 <span className="hidden xs:inline">Stock</span>
+              </button>
+
+              <button
+                onClick={() => setIsAddonsDrawerOpen(true)}
+                className="h-8 px-2.5 flex items-center gap-1 rounded-xl bg-slate-800 text-slate-300 hover:text-white active:scale-95 border border-slate-700 shadow-xs text-xs font-bold"
+                title="Manage Surcharge Chips"
+              >
+                🏷️ <span className="hidden xs:inline">Addons</span>
+              </button>
+
+              <button
+                onClick={() => setIsCustomersOpen(true)}
+                className="h-8 px-2.5 flex items-center gap-1 rounded-xl bg-slate-800 text-slate-300 hover:text-white active:scale-95 border border-slate-700 shadow-xs text-xs font-bold"
+                title="Customer Directory (CRM)"
+              >
+                👥 <span className="hidden xs:inline">CRM</span>
+              </button>
+            </div>
           </div>
 
-          {/* Row 2: Live Financial Tally Badges */}
+          {/* Row 3: Live Financial Tally Badges */}
           <div className="flex items-center gap-1.5 pt-1 border-t border-slate-800">
             <div className="flex-1 rounded-xl bg-emerald-500/20 px-2 py-1.5 border border-emerald-500/40 text-center">
               <p className="text-[8px] font-bold uppercase text-emerald-300">Cash</p>
@@ -493,6 +558,7 @@ export default function LaundryTapBoard() {
               <p className="text-xs font-black text-red-400">₱{totalUnpaid}</p>
             </div>
           </div>
+
         </div>
       </header>
 
@@ -756,6 +822,15 @@ export default function LaundryTapBoard() {
       <AddonsDrawer
         isOpen={isAddonsDrawerOpen}
         onClose={() => setIsAddonsDrawerOpen(false)}
+        shopId={shopId}
+      />
+
+      <CustomersDrawer
+        isOpen={isCustomersOpen}
+        onClose={() => {
+          setIsCustomersOpen(false);
+          loadShopAndOrders();
+        }}
         shopId={shopId}
       />
     </main>

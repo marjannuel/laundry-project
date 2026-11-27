@@ -12,6 +12,7 @@ export interface CustomerProfile {
   shop_id: string;
   nickname: string;
   phone_number?: string;
+  facebook_link?: string;
   total_visits: number;
   avg_interval_days?: number;
 }
@@ -242,7 +243,6 @@ export default function NewOrderModal({
     }
   };
 
-  // Inline Customer Management Helpers
   const handleDeleteCustomer = async (e: React.MouseEvent, customer: CustomerProfile) => {
     e.stopPropagation();
     if (!confirm(`Remove "${customer.nickname}" from saved customers?`)) return;
@@ -372,6 +372,7 @@ export default function NewOrderModal({
       const isJunkName = /^\d+$/.test(finalName);
 
       if (shopId && finalName !== 'Walk-in Student' && !isJunkName) {
+        // Look up customer case-insensitively
         const existing = customers.find(
           (c) => c.nickname.toLowerCase() === finalName.toLowerCase()
         );
@@ -383,6 +384,7 @@ export default function NewOrderModal({
             .update({ total_visits: existing.total_visits + 1 })
             .eq('id', existing.id);
         } else {
+          // Automatically create customer record if they typed a new name
           const { data: newCust, error: custError } = await supabase
             .from('customers')
             .insert({
@@ -429,6 +431,7 @@ export default function NewOrderModal({
         .map(id => addons.find(a => a.id === id))
         .filter(Boolean);
 
+      // Create order with the correctly bound customer_id so Supabase joins the FB link perfectly!
       await onCreateOrder({
         tag_number: nextAutoTag,
         customer_name: finalName,
@@ -815,13 +818,13 @@ export default function NewOrderModal({
 
         </div>
 
-        {/* Footer Actions */}
-        <div className="border-t bg-slate-50 p-4 shrink-0">
+        {/* Modal Footer Action */}
+        <div className="border-t p-4 bg-slate-50 shrink-0">
           <button
             type="button"
-            disabled={submitting}
             onClick={handleSave}
-            className="w-full rounded-2xl bg-blue-600 py-4 text-base font-black text-white shadow-xl active:scale-98 disabled:opacity-50 flex items-center justify-center gap-2"
+            disabled={submitting}
+            className="w-full rounded-2xl bg-blue-600 py-4 text-base font-black text-white shadow-xl active:scale-98 disabled:opacity-50"
           >
             {submitting ? 'Logging Order...' : 'CONFIRM & PRINT TAG'}
           </button>
