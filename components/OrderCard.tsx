@@ -26,6 +26,34 @@ const getServiceDisplay = (serviceType: string) => {
   return { label: serviceType, icon: '🧺' };
 };
 
+// ⚡ Smart helper supporting mobile share links (/share/), usernames (m.me/), and IDs
+const getMessengerUrl = (rawLink: string) => {
+  if (!rawLink) return '';
+  let cleaned = rawLink.trim();
+  
+  // If it's a mobile share link, pass it through so the native FB app handles the redirect
+  if (cleaned.includes('/share/')) {
+    if (!cleaned.startsWith('http')) {
+      cleaned = `https://${cleaned}`;
+    }
+    return cleaned;
+  }
+  
+  if (cleaned.includes('m.me/')) return cleaned;
+  
+  if (cleaned.includes('profile.php')) {
+    const urlParams = new URLSearchParams(cleaned.split('?')[1]);
+    const id = urlParams.get('id');
+    if (id) return `https://m.me/${id}`;
+  }
+  
+  let cleanUrl = cleaned.replace(/\/+$/, '');
+  const parts = cleanUrl.split('/');
+  const username = parts[parts.length - 1];
+  
+  return username ? `https://m.me/${username}` : cleanUrl;
+};
+
 export default function OrderCard({ order, onAdvanceStatus, onRevertStatus, onMarkPaid, onDeleteOrder }: OrderCardProps) {
   const serviceInfo = getServiceDisplay(order.service_type);
   const isUnpaid = order.payment_method === 'unpaid';
@@ -66,11 +94,8 @@ export default function OrderCard({ order, onAdvanceStatus, onRevertStatus, onMa
     navigator.clipboard.writeText(messageText).then(() => {}).catch(() => {});
 
     if (rawFb) {
-      let cleanUrl = rawFb.trim();
-      if (!cleanUrl.startsWith('http')) {
-        cleanUrl = `https://${cleanUrl}`;
-      }
-      window.open(cleanUrl, '_blank');
+      const messengerUrl = getMessengerUrl(rawFb);
+      window.open(messengerUrl, '_blank');
       alert(`💬 Ready message copied to clipboard!\n\nPaste it into Messenger for ${order.customer_name}.`);
     } else {
       alert(`💬 Ready message copied to clipboard!\n\n(No Facebook link saved for ${order.customer_name} yet. Add it in the Customer Directory CRM).`);
@@ -115,7 +140,7 @@ export default function OrderCard({ order, onAdvanceStatus, onRevertStatus, onMa
                   type="button"
                   onClick={handleMessengerClick}
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-600 text-white text-[10px] font-black hover:bg-blue-700 active:scale-95 transition shrink-0 shadow-2xs"
-                  title="Copy ready message & open Facebook profile"
+                  title="Copy ready message & open direct Messenger chat"
                 >
                   <MessageCircle className="h-3 w-3" /> Chat
                 </button>
