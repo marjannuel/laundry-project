@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { X, Package, AlertTriangle, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { Order } from '@/types/laundry';
@@ -20,15 +20,24 @@ interface InventoryDrawerProps {
   onClose: () => void;
   shopId: string | null;
   subscriptionTier: string;
-  activeOrders?: Order[]; // Added activeOrders prop optionally
+  activeOrders?: Order[];
 }
+
+const sortInventoryByPriority = (list: InventoryItem[]) => {
+  return [...list].sort((a, b) => {
+    const aIsLow = a.current_stock <= a.min_threshold ? 1 : 0;
+    const bIsLow = b.current_stock <= b.min_threshold ? 1 : 0;
+    if (bIsLow !== aIsLow) return bIsLow - aIsLow;
+    return a.item_name.localeCompare(b.item_name);
+  });
+};
 
 export default function InventoryDrawer({
   isOpen,
   onClose,
   shopId,
   subscriptionTier,
-  activeOrders = [], // Safe fallback array
+  activeOrders = [],
 }: InventoryDrawerProps) {
   const supabase = createClient();
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -52,13 +61,7 @@ export default function InventoryDrawer({
       .order('item_name', { ascending: true });
 
     if (!error && data) {
-      // Low-stock priority sorting: Low stock items float to the very top
-      const sortedItems = (data as InventoryItem[]).sort((a, b) => {
-        const aIsLow = a.current_stock <= a.min_threshold ? 1 : 0;
-        const bIsLow = b.current_stock <= b.min_threshold ? 1 : 0;
-        return bIsLow - aIsLow;
-      });
-      setItems(sortedItems);
+      setItems(sortInventoryByPriority(data as InventoryItem[]));
     }
     setLoading(false);
   }, [shopId, supabase]);
@@ -69,12 +72,46 @@ export default function InventoryDrawer({
     }
   }, [isOpen, fetchInventory]);
 
-  const getUsageHint = () => {
-    if (newUnit === 'kg') return '(in grams, e.g. 65)';
-    if (newUnit === 'L') return '(in milliliters, e.g. 50)';
-    if (newUnit === 'g' || newUnit === 'mL') return '(e.g. 50)';
-    return '(e.g. 1 or 2)';
-  };
+  // ⚡ Supabase Realtime Listener for live multi-device inventory sync
+  useEffect(() => {
+    if (!shopId || !isOpen) return;
+
+    const channel = supabase
+      .channel(`inventory-live-${shopId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'inventory',
+          filter: `shop_id=eq.${shopId}`,
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newItem = payload.new as InventoryItem;
+            setItems((prev) => {
+              if (prev.some((item) => item.id === newItem.id)) return prev;
+              return sortInventoryByPriority([...prev, newItem]);
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedItem = payload.new as InventoryItem;
+            setItems((prev) =>
+              sortInventoryByPriority(
+                prev.map((item) => (item.id === updatedItem.id ? updatedItem : item))
+              )
+            );
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old.id;
+            setItems((prev) => prev.filter((item) => item.id !== deletedId));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [shopId, isOpen, supabase]);
 
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,22 +123,29 @@ export default function InventoryDrawer({
       if (doseValue < 0) doseValue = 0;
       if (doseValue > 1000) doseValue = 1000;
 
-      const { error } = await supabase.from('inventory').insert({
-        shop_id: shopId,
-        item_name: newItemName.trim(),
-        category: newCategory,
-        current_stock: parseFloat(newStock) || 0,
-        unit: newUnit,
-        min_threshold: 10,
-        consumption_per_load: doseValue,
-        auto_deduct: true,
-      });
+      const { data, error } = await supabase
+        .from('inventory')
+        .insert({
+          shop_id: shopId,
+          item_name: newItemName.trim(),
+          category: newCategory,
+          current_stock: parseFloat(newStock) || 0,
+          unit: newUnit,
+          min_threshold: 10,
+          consumption_per_load: doseValue,
+          auto_deduct: true,
+        })
+        .select()
+        .single();
 
-      if (!error) {
+      if (!error && data) {
         setNewItemName('');
         setNewStock('2000');
         setNewConsumption('65');
-        fetchInventory();
+        setItems((prev) => {
+          if (prev.some((item) => item.id === data.id)) return prev;
+          return sortInventoryByPriority([...prev, data as InventoryItem]);
+        });
       } else {
         alert('Failed to add inventory item.');
       }
@@ -121,7 +165,11 @@ export default function InventoryDrawer({
       .eq('id', id);
 
     if (!error) {
-      fetchInventory();
+      setItems((prev) =>
+        sortInventoryByPriority(
+          prev.map((item) => (item.id === id ? { ...item, current_stock: updatedStock } : item))
+        )
+      );
     }
   };
 
@@ -134,7 +182,7 @@ export default function InventoryDrawer({
       .eq('id', id);
 
     if (!error) {
-      fetchInventory();
+      setItems((prev) => prev.filter((item) => item.id !== id));
     } else {
       alert('Failed to delete item.');
     }
