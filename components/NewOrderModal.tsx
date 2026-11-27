@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { ServiceType, PaymentMethod, Order } from '@/types/laundry';
-import { X, Plus, Minus, Check, User, Sparkles, Package, Tag, Trash2 } from 'lucide-react';
+import { X, Plus, Minus, Check, User, Sparkles, Package, Tag, Trash2, Pencil } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 
 const supabase = createClient();
@@ -99,7 +99,7 @@ export default function NewOrderModal({
       fetchShopCatalog();
       fetchCustomers();
       fetchInventory();
-      fetchServiceAverages(); // 🧠 Fetch Agentic AI learned turnaround velocity
+      fetchServiceAverages();
       setSelectedAddonIds([]);
       setCustomAmount('');
       setIsAddingService(false);
@@ -158,16 +158,16 @@ export default function NewOrderModal({
     }
   };
 
-  // 🧠 Agentic AI: Compute real shop velocity based on completed order durations
   const fetchServiceAverages = async () => {
     if (!shopId) return;
     const { data, error } = await supabase
       .from('orders')
       .select('service_id, started_at, completed_at, load_count')
       .eq('shop_id', shopId)
-      .eq('status', 'ready') // or completed depending on status naming
+      .eq('status', 'ready')
       .not('started_at', 'is', null)
-      .not('completed_at', 'is', null);
+      .not('completed_at', 'is', null)
+      .limit(100);
 
     if (!error && data) {
       const serviceTotals: Record<string, { totalMins: number; count: number }> = {};
@@ -242,6 +242,54 @@ export default function NewOrderModal({
     }
   };
 
+  // Inline Customer Management Helpers
+  const handleDeleteCustomer = async (e: React.MouseEvent, customer: CustomerProfile) => {
+    e.stopPropagation();
+    if (!confirm(`Remove "${customer.nickname}" from saved customers?`)) return;
+
+    const { error } = await supabase
+      .from('customers')
+      .delete()
+      .eq('id', customer.id);
+
+    if (!error) {
+      setCustomers((prev) => prev.filter((c) => c.id !== customer.id));
+      if (selectedCustomerId === customer.id) {
+        setSelectedCustomerId(undefined);
+      }
+    } else {
+      alert('Failed to remove customer.');
+    }
+  };
+
+  const handleRenameCustomer = async (e: React.MouseEvent, customer: CustomerProfile) => {
+    e.stopPropagation();
+    const correctedName = prompt('Fix customer name:', customer.nickname);
+    if (!correctedName || correctedName.trim() === '' || correctedName.trim() === customer.nickname) return;
+
+    const cleanName = correctedName.trim();
+    const { error } = await supabase
+      .from('customers')
+      .update({ nickname: cleanName })
+      .eq('id', customer.id);
+
+    if (!error) {
+      await supabase
+        .from('orders')
+        .update({ customer_name: cleanName })
+        .eq('customer_id', customer.id);
+
+      setCustomers((prev) =>
+        prev.map((c) => (c.id === customer.id ? { ...c, nickname: cleanName } : c))
+      );
+      setCustomerName(cleanName);
+      setSelectedCustomerId(customer.id);
+      setIsSearchingCustomer(false);
+    } else {
+      alert('Failed to update customer name.');
+    }
+  };
+
   const nextAutoTag = useMemo(() => {
     const todayString = new Date().toDateString();
     const todaysOrders = activeOrders.filter((order) => {
@@ -256,7 +304,6 @@ export default function NewOrderModal({
     return `Basket #${num}`;
   }, [activeOrders]);
 
-  // Pricing calculations
   const currentService = services.find((s) => s.id === selectedServiceId);
   const baseServicePrice = currentService ? Number(currentService.base_price) * loadCount : 0;
   
@@ -268,7 +315,6 @@ export default function NewOrderModal({
   const calculatedTotal = baseServicePrice + surchargeAddonsTotal;
   const finalAmount = customAmount !== '' ? Math.max(0, parseInt(customAmount, 10) || 0) : calculatedTotal;
 
-  // 🧠 Agentic AI Dynamic Queue & Velocity Ready Time Calculation
   const baselineMinsPerLoad = currentService 
     ? (serviceAverages[currentService.id] || currentService.estimated_minutes || 45)
     : 45;
@@ -323,7 +369,9 @@ export default function NewOrderModal({
       const finalName = customerName.trim() || 'Walk-in Student';
       let customerIdToSave = selectedCustomerId;
 
-      if (shopId && finalName !== 'Walk-in Student') {
+      const isJunkName = /^\d+$/.test(finalName);
+
+      if (shopId && finalName !== 'Walk-in Student' && !isJunkName) {
         const existing = customers.find(
           (c) => c.nickname.toLowerCase() === finalName.toLowerCase()
         );
@@ -424,7 +472,7 @@ export default function NewOrderModal({
         {/* Scrollable Form Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           
-          {/* Customer Name Input */}
+          {/* Customer Name Input with Inline Typos Cleanup */}
           <div className="relative">
             <label className="text-xs font-bold uppercase text-slate-400 mb-1 flex items-center justify-between">
               <span>Customer Name</span>
@@ -448,25 +496,49 @@ export default function NewOrderModal({
             />
 
             {isSearchingCustomer && filteredCustomers.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-1 max-h-40 overflow-y-auto rounded-2xl border-2 border-slate-200 bg-white shadow-lg z-30">
-                {filteredCustomers.map((c) => (
-                  <div
-                    key={c.id}
-                    onClick={() => handleSelectCustomer(c)}
-                    className="flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-none"
-                  >
-                    <div className="flex items-center gap-2">
-                      <User className="h-4 w-4 text-blue-600" />
-                      <div>
-                        <p className="text-sm font-black text-slate-900">{c.nickname}</p>
-                        <p className="text-[10px] text-slate-500">{c.total_visits} total visits</p>
+              <div className="absolute top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-2xl border-2 border-slate-200 bg-white shadow-lg z-30">
+                {filteredCustomers.map((c) => {
+                  const isRegular = c.total_visits >= 3;
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => handleSelectCustomer(c)}
+                      className="flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-none"
+                    >
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <User className="h-4 w-4 text-blue-600 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-black text-slate-900 truncate">{c.nickname}</p>
+                          <p className="text-[10px] text-slate-500">{c.total_visits} total visits</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          isRegular ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'
+                        }`}>
+                          {isRegular ? 'Regular' : 'New'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => handleRenameCustomer(e, c)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition"
+                          title="Fix typo in name"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteCustomer(e, c)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition"
+                          title="Remove customer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     </div>
-                    <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                      Regular
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
