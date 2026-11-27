@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/utils/supabase/client';
-import { X, Package, AlertTriangle, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { X, Package, AlertTriangle, Plus, Pencil, Trash2 } from 'lucide-react';
 import { Order } from '@/types/laundry';
 
 interface InventoryItem {
@@ -156,22 +156,29 @@ export default function InventoryDrawer({
     }
   };
 
-  const handleRestock = async (id: string, currentStock: number, unit: string) => {
-    const added = prompt(`Enter quantity to restock (${unit}):`, unit === 'g' || unit === 'mL' ? '1000' : '10');
-    if (!added || isNaN(Number(added))) return;
+  const handleEditStock = async (id: string, itemName: string, currentStock: number, unit: string) => {
+    const inputVal = prompt(`Edit stock amount for "${itemName}" (${unit}):`, String(currentStock));
+    if (inputVal === null) return; // Cancelled
 
-    const updatedStock = currentStock + Number(added);
+    const newStockVal = parseFloat(inputVal);
+    if (isNaN(newStockVal) || newStockVal < 0) {
+      alert('Please enter a valid positive number.');
+      return;
+    }
+
     const { error } = await supabase
       .from('inventory')
-      .update({ current_stock: updatedStock })
+      .update({ current_stock: Number(newStockVal.toFixed(3)) })
       .eq('id', id);
 
     if (!error) {
       setItems((prev) =>
         sortInventoryByPriority(
-          prev.map((item) => (item.id === id ? { ...item, current_stock: updatedStock } : item))
+          prev.map((item) => (item.id === id ? { ...item, current_stock: Number(newStockVal.toFixed(3)) } : item))
         )
       );
+    } else {
+      alert('Failed to update stock.');
     }
   };
 
@@ -280,10 +287,10 @@ export default function InventoryDrawer({
 
                     <div className="flex items-center gap-1.5">
                       <button
-                        onClick={() => handleRestock(item.id, Number(item.current_stock), item.unit)}
+                        onClick={() => handleEditStock(item.id, item.item_name, Number(item.current_stock), item.unit)}
                         className="rounded-xl bg-slate-900 px-3 py-2 text-[10px] font-black uppercase text-white active:scale-95 flex items-center gap-1 shadow-xs"
                       >
-                        <RefreshCw className="h-3 w-3" /> Restock
+                        <Pencil className="h-3 w-3 text-blue-400" /> Edit
                       </button>
                       <button
                         onClick={() => handleDeleteItem(item.id, item.item_name)}

@@ -815,16 +815,15 @@ export default function NewOrderModal({
 
         </div>
 
-        {/* Footer / Giant Save Button */}
-        <div className="border-t p-4 bg-white shrink-0">
+        {/* Footer Actions */}
+        <div className="border-t bg-slate-50 p-4 shrink-0">
           <button
             type="button"
             disabled={submitting}
             onClick={handleSave}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 py-4 text-xl font-black text-white shadow-lg active:scale-98 disabled:opacity-50"
+            className="w-full rounded-2xl bg-blue-600 py-4 text-base font-black text-white shadow-xl active:scale-98 disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            <Check className="h-7 w-7" />
-            SAVE • ₱{finalAmount}
+            {submitting ? 'Logging Order...' : 'CONFIRM & PRINT TAG'}
           </button>
         </div>
 

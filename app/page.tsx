@@ -10,6 +10,7 @@ import AuthScreen from '@/components/AuthScreen';
 import { Plus, Sparkles, LogOut, History, X } from 'lucide-react';
 import UpgradeModal from '@/components/UpgradeModal';
 import InventoryDrawer from '@/components/InventoryDrawer';
+import AddonsDrawer from '@/components/AddonsDrawer';
 
 // Helper to format remaining trial time (e.g., "6d 14h" or "Expiring soon")
 const getTrialTimeRemaining = (trialEndsAt: string | null) => {
@@ -41,6 +42,7 @@ export default function LaundryTapBoard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isInsightsOpen, setIsInsightsOpen] = useState(false);
   const [isInventoryOpen, setIsInventoryOpen] = useState(false); // Inventory Drawer State
+  const [isAddonsDrawerOpen, setIsAddonsDrawerOpen] = useState(false); // Addons Manager Drawer State
   const [isHistoryOpen, setIsHistoryOpen] = useState(false); // Shift History Modal State
   const [isIncomeModalOpen, setIsIncomeModalOpen] = useState(false); // Income Report Modal State
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false); // Rename Shop Modal State
@@ -295,12 +297,49 @@ export default function LaundryTapBoard() {
   };
 
   const handleDeleteOrder = async (orderId: string) => {
+    if (!confirm('Are you sure you want to delete this order? Stock will be restored to inventory.')) return;
+
+    const targetOrder = orders.find((o) => o.id === orderId);
+
     const { error } = await supabase.from('orders').delete().eq('id', orderId);
-    if (!error) {
-      setOrders((prev) => prev.filter((o) => o.id !== orderId));
-    } else {
+    if (error) {
       alert('Failed to delete order.');
+      return;
     }
+
+    // Refund / Restore inventory stock back
+    if (targetOrder && shopId) {
+      const { data: invItems } = await supabase
+        .from('inventory')
+        .select('*')
+        .eq('shop_id', shopId);
+
+      if (invItems && invItems.length > 0) {
+        const addons = targetOrder.addons_snapshot || [];
+        const matchedAddon = addons.find((a: any) => a?.inventory_multiplier && a.inventory_multiplier > 1.0);
+        const multiplier = matchedAddon ? Number(matchedAddon.inventory_multiplier) : 1.0;
+        const loadCount = targetOrder.load_count || 1;
+
+        for (const item of invItems) {
+          let rawConsumption = Number(item.consumption_per_load || 1.0);
+          const unitLower = (item.unit || '').toLowerCase();
+          
+          if ((unitLower === 'kg' || unitLower === 'l') && rawConsumption >= 10) {
+            rawConsumption = rawConsumption / 1000;
+          }
+
+          const consumedAmount = loadCount * rawConsumption * multiplier;
+          const restoredStock = Number(item.current_stock) + consumedAmount;
+
+          await supabase
+            .from('inventory')
+            .update({ current_stock: Number(restoredStock.toFixed(3)) })
+            .eq('id', item.id);
+        }
+      }
+    }
+
+    setOrders((prev) => prev.filter((o) => o.id !== orderId));
   };
 
   const handleMarkPaid = async (orderId: string, method: PaymentMethod) => {
@@ -407,6 +446,14 @@ export default function LaundryTapBoard() {
                 title="Inventory & Stock"
               >
                 📦
+              </button>
+
+              <button
+                onClick={() => setIsAddonsDrawerOpen(true)}
+                className="h-8 w-8 flex items-center justify-center rounded-xl bg-slate-800 text-slate-300 hover:text-white active:scale-95 border border-slate-700 shadow-xs text-sm"
+                title="Manage Surcharge Chips"
+              >
+                🏷️
               </button>
 
               <button
@@ -704,6 +751,12 @@ export default function LaundryTapBoard() {
         onClose={() => setIsInventoryOpen(false)}
         shopId={shopId}
         subscriptionTier={subscriptionTier}
+      />
+
+      <AddonsDrawer
+        isOpen={isAddonsDrawerOpen}
+        onClose={() => setIsAddonsDrawerOpen(false)}
+        shopId={shopId}
       />
     </main>
   );

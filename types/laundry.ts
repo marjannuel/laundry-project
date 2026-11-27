@@ -1,4 +1,4 @@
-export type ServiceType = 'wash_dry' | 'wash_only' | 'dry_only' | 'comforter' | 'fold_only';
+export type ServiceType = 'wash_dry' | 'wash_only' | 'dry_only' | 'comforter' | 'fold_only' | string;
 export type PaymentMethod = 'unpaid' | 'cash' | 'gcash';
 export type OrderStatus = 'queued' | 'washing' | 'ready' | 'picked_up';
 
@@ -6,9 +6,11 @@ export interface Order {
   id: string;
   shop_id: string;
   customer_id: string | null;
-  customer_name: string; // <-- Added
+  customer_name: string;
   tag_number: string;
+  service_id?: string;
   service_type: ServiceType;
+  addons_snapshot?: any[];
   load_count: number;
   amount: number;
   payment_method: PaymentMethod;
@@ -19,7 +21,7 @@ export interface Order {
 }
 
 export const SERVICE_CONFIG: Record<
-  ServiceType,
+  string,
   { label: string; defaultPrice: number; color: string; icon: string }
 > = {
   wash_dry: { label: 'Wash & Dry', defaultPrice: 150, color: 'bg-blue-600', icon: '🧺' },
