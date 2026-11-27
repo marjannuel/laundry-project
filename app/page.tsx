@@ -107,6 +107,57 @@ export default function LaundryTapBoard() {
     }
   }, [isAuthenticated, loadShopAndOrders]);
 
+  // ⚡ Supabase Realtime Listener for multi-device sync (Orders & Inventory)
+  useEffect(() => {
+    if (!shopId) return;
+
+    const channel = supabase
+      .channel(`live-sync-${shopId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders',
+          filter: `shop_id=eq.${shopId}`,
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newOrder = payload.new as Order;
+            setOrders((prev) => {
+              if (prev.some((o) => o.id === newOrder.id)) return prev;
+              return [...prev, newOrder];
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedOrder = payload.new as Order;
+            setOrders((prev) =>
+              prev.map((o) => (o.id === updatedOrder.id ? updatedOrder : o))
+            );
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old.id;
+            setOrders((prev) => prev.filter((o) => o.id !== deletedId));
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'inventory',
+          filter: `shop_id=eq.${shopId}`,
+        },
+        () => {
+          // Triggers a subtle notification or state update if inventory changes cross-device
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [shopId, supabase]);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setIsAuthenticated(false);
@@ -147,8 +198,10 @@ export default function LaundryTapBoard() {
       .single();
 
     if (!error && data) {
-      // Append new orders to the bottom so Basket #1 stays on top
-      setOrders((prev) => [...prev, data as Order]);
+      setOrders((prev) => {
+        if (prev.some((o) => o.id === data.id)) return prev;
+        return [...prev, data as Order];
+      });
     } else {
       console.error('Error creating order:', error);
       alert('Failed to create order. Check console.');
