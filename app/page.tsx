@@ -11,6 +11,22 @@ import { Plus, Sparkles, LogOut, History, X } from 'lucide-react';
 import UpgradeModal from '@/components/UpgradeModal';
 import InventoryDrawer from '@/components/InventoryDrawer';
 
+// Helper to format remaining trial time (e.g., "6d 14h" or "Expiring soon")
+const getTrialTimeRemaining = (trialEndsAt: string | null) => {
+  if (!trialEndsAt) return 'PRO';
+  const diffMs = new Date(trialEndsAt).getTime() - Date.now();
+  if (diffMs <= 0) return 'EXPIRED';
+
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+
+  if (days > 0) {
+    return `${days}d ${hours}h`;
+  }
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  return `${hours}h ${minutes}m`;
+};
+
 export default function LaundryTapBoard() {
   const supabase = createClient();
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -20,6 +36,7 @@ export default function LaundryTapBoard() {
   const [shopId, setShopId] = useState<string | null>(null);
   const [shopName, setShopName] = useState<string>('My Laundry Shop');
   const [subscriptionTier, setSubscriptionTier] = useState<string>('free');
+  const [trialEndsAt, setTrialEndsAt] = useState<string | null>(null);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isInsightsOpen, setIsInsightsOpen] = useState(false);
@@ -52,41 +69,59 @@ export default function LaundryTapBoard() {
     // Check if a shop exists for this user ID
     let { data: shops } = await supabase
       .from('shops')
-      .select('id, name, subscription_tier')
+      .select('id, name, subscription_tier, trial_ends_at')
       .eq('owner_id', user.id)
       .limit(1);
 
     let currentShopId = shops?.[0]?.id ?? null;
     let currentShopName = shops?.[0]?.name ?? 'My Laundry Shop';
     let currentTier = shops?.[0]?.subscription_tier ?? 'free';
+    let currentTrialEndsAt = shops?.[0]?.trial_ends_at ?? null;
 
-    // If no shop exists, auto-create one linked to this user's real UUID
+    // If no shop exists, auto-create one linked to this user's real UUID (Triggers 7-day Pro trial automatically via DB)
     if (!currentShopId) {
+      const trialExpiry = new Date();
+      trialExpiry.setDate(trialExpiry.getDate() + 7);
+
       const { data: newShop, error: createError } = await supabase
         .from('shops')
         .insert([
           {
             name: 'My Laundry Shop',
             location: 'Baguio City',
-            subscription_tier: 'free',
+            subscription_tier: 'pro',
+            trial_ends_at: trialExpiry.toISOString(),
             owner_id: user.id,
           },
         ])
-        .select('id, name, subscription_tier')
+        .select('id, name, subscription_tier, trial_ends_at')
         .single();
 
       if (newShop) {
         currentShopId = newShop.id;
         currentShopName = newShop.name;
-        currentTier = newShop.subscription_tier || 'free';
+        currentTier = newShop.subscription_tier || 'pro';
+        currentTrialEndsAt = newShop.trial_ends_at;
       } else {
         console.error('Failed to auto-create shop:', createError);
+      }
+    }
+
+    // Check if Pro trial has lapsed
+    if (currentTier === 'pro' && currentTrialEndsAt) {
+      if (new Date() > new Date(currentTrialEndsAt)) {
+        await supabase
+          .from('shops')
+          .update({ subscription_tier: 'free' })
+          .eq('id', currentShopId);
+        currentTier = 'free';
       }
     }
 
     setShopId(currentShopId);
     setShopName(currentShopName);
     setSubscriptionTier(currentTier);
+    setTrialEndsAt(currentTrialEndsAt);
 
     if (currentShopId) {
       // Load all orders sorted ASCENDING so Basket #1 stays at the top of the rack
@@ -459,9 +494,13 @@ export default function LaundryTapBoard() {
             title="AI Business Advisor"
           >
             <Sparkles className="h-6 w-6" />
-            {subscriptionTier === 'free' && (
+            {subscriptionTier === 'free' ? (
               <span className="absolute -top-1 -right-1 rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-black text-slate-900">
                 FREE
+              </span>
+            ) : (
+              <span className="absolute -top-2 -right-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-black text-white shadow-sm border border-slate-900 animate-pulse">
+                {getTrialTimeRemaining(trialEndsAt)}
               </span>
             )}
           </button>
